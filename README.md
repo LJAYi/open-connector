@@ -8,7 +8,11 @@
 ![MCP](https://img.shields.io/badge/MCP-ready-111827)
 ![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539)
 
-OpenConnector is an open-source auth gateway that connects 643 providers, supports
+[![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fconnector.oomol.com%2Fv1%2Fcatalog&query=data.providerCount&label=Providers&color=%237d7fe9)](https://oomol.com/apps)
+[![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fconnector.oomol.com%2Fv1%2Fcatalog&query=data.actionCount&label=Actions&color=%237d7fe9)](https://oomol.com/apps)
+
+
+OpenConnector is an open-source auth gateway that connects 800+ providers, supports
 Cloudflare-compatible deployment, and provides 6,680 prebuilt Actions that AI agents can call
 directly through the [Connector SDK](https://github.com/oomol-lab/connector-sdk),
 [oo CLI](https://github.com/oomol-lab/oo-cli), MCP, and HTTP.
@@ -20,7 +24,7 @@ from scratch.
 
 ## Why OpenConnector
 
-- [643 providers and 6,680 prebuilt Actions](docs/providers.md) across SaaS products such as
+- [800+ providers and 8000+ prebuilt Actions](docs/providers.md) across SaaS products such as
   GitHub, Gmail, Notion, BigQuery, Google Analytics, Supabase, Airtable, Slack, and more.
 - Open-source auth gateway for API keys, OAuth2, custom credentials, and no-auth providers.
 - Open-source Action layer with prebuilt request/response schemas and lazy-loaded executors.
@@ -42,7 +46,7 @@ from scratch.
 
 ## Connected SaaS Logo Wall
 
-OpenConnector currently supports 643 providers and 6,680 prebuilt Actions. This logo wall is only a
+OpenConnector currently supports 800+ providers and 8000+ prebuilt Actions. This logo wall is only a
 partial preview, not the full catalog. It highlights recognizable SaaS, developer tools,
 productivity apps, analytics products, and AI services so readers can immediately see that
 OpenConnector reaches far more than the logos shown here.

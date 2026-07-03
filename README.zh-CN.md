@@ -8,7 +8,11 @@
 ![MCP](https://img.shields.io/badge/MCP-ready-111827)
 ![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539)
 
-OpenConnector 是一个开源鉴权网关，连接了 643 个 provider，兼容 Cloudflare 部署，并通过
+[![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fconnector.oomol.com%2Fv1%2Fcatalog&query=data.providerCount&label=Providers&color=%237d7fe9)](https://oomol.com/apps)
+[![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fconnector.oomol.com%2Fv1%2Fcatalog&query=data.actionCount&label=Actions&color=%237d7fe9)](https://oomol.com/apps)
+
+
+OpenConnector 是一个开源鉴权网关，连接了 800+ 个 provider，兼容 Cloudflare 部署，并通过
 [Connector SDK](https://github.com/oomol-lab/connector-sdk)、[oo CLI](https://github.com/oomol-lab/oo-cli)、MCP 和 HTTP 为 AI Agent 提供 6,680 个可直接调用的预置 Action。
 
 OpenConnector 不只是保存 provider 凭据。它把 Gateway、provider catalog 和 Action executors
@@ -17,7 +21,7 @@ OpenConnector 不只是保存 provider 凭据。它把 Gateway、provider catalo
 
 ## 为什么选择 OpenConnector
 
-- [连接 643 个 provider，提供 6,680 个预置 Action](docs/providers.md)，覆盖 GitHub、Gmail、Notion、
+- [连接 800+ 个 provider，提供 8000+ 个预置 Action](docs/providers.md)，覆盖 GitHub、Gmail、Notion、
   BigQuery、Google Analytics、Supabase、Airtable、Slack 等常见 SaaS。
 - 开源鉴权网关，统一管理 API key、OAuth2、自定义凭据和无需鉴权的 provider。
 - 开源 Action 层，内置请求/响应 schema 和按需加载的 executor。
@@ -37,7 +41,7 @@ OpenConnector 不只是保存 provider 凭据。它把 Gateway、provider catalo
 
 ## 连入 SaaS Logo 墙
 
-OpenConnector 当前支持 643 个 provider 和 6,680 个预置 Action。下面的 logo 墙只是部分展示，不代表完整 catalog。它选取了一组高识别度的 SaaS、开发者工具、效率应用、数据分析产品和 AI 服务，让用户一眼感受到 OpenConnector 覆盖的范围远不止这些 logo。
+OpenConnector 当前支持 800+ 个 provider 和 8000+ 个预置 Action。下面的 logo 墙只是部分展示，不代表完整 catalog。它选取了一组高识别度的 SaaS、开发者工具、效率应用、数据分析产品和 AI 服务，让用户一眼感受到 OpenConnector 覆盖的范围远不止这些 logo。
 
 ![连入 SaaS Logo 墙](assets/saas-logo-wall.png)
 
