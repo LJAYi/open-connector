@@ -50,6 +50,7 @@ export interface ProviderDefinition {
   authTypes: string[];
   auth: AuthDefinition[];
   homepageUrl?: string;
+  iconUrl?: string;
   actions: ActionDefinition[];
 }
 

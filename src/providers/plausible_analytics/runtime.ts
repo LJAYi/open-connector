@@ -1,4 +1,5 @@
 import { compactObject, optionalRecord, optionalString, requiredString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import { providerUserAgent, ProviderRequestError } from "../provider-runtime.ts";
 
 export const plausibleDefaultBaseUrl = "https://plausible.io";
@@ -214,16 +215,18 @@ function normalizePlausibleBaseUrl(value?: string): string {
   if (!value) {
     return plausibleDefaultBaseUrl;
   }
-  try {
-    const url = new URL(value);
-    let pathname = url.pathname;
-    while (pathname.endsWith("/") && pathname.length > 1) {
-      pathname = pathname.slice(0, -1);
-    }
-    return `${url.origin}${pathname}`;
-  } catch {
-    throw new ProviderRequestError(400, "Base URL must be a valid URL");
+  const url = assertPublicHttpUrl(value, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "Base URL must use https");
   }
+  let pathname = url.pathname;
+  while (pathname.endsWith("/") && pathname.length > 1) {
+    pathname = pathname.slice(0, -1);
+  }
+  return `${url.origin}${pathname}`;
 }
 
 function normalizeRequiredSiteId(value: unknown): string {

@@ -3,6 +3,7 @@ import type { ApiKeyProviderContext, ProviderFetch, ProviderRuntimeHandler } fro
 import type { BenchmarkEmailActionName } from "./actions.ts";
 
 import { compactObject, optionalInteger, optionalRecord, optionalString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   createProviderTimeout,
   isAbortLikeError,
@@ -240,15 +241,13 @@ function normalizeBaseUrl(value: unknown): string {
     throw new ProviderRequestError(400, "baseUrl is required");
   }
 
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL");
-  }
+  const url = assertPublicHttpUrl(text, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL");
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "baseUrl must use https");
   }
 
   url.search = "";

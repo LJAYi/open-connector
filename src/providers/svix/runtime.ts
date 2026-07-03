@@ -3,6 +3,7 @@ import type { ProviderRuntimeHandler } from "../provider-runtime.ts";
 import type { SvixActionName } from "./actions.ts";
 
 import { compactObject, optionalBoolean, optionalRecord, optionalString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   createProviderTimeout,
   isAbortLikeError,
@@ -482,14 +483,12 @@ export function getSvixBaseUrl(input: { apiKey: string; serverUrl?: string }): s
 }
 
 function normalizeSvixBaseUrl(value: string): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new ProviderRequestError(400, "svix serverUrl must be a valid URL");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ProviderRequestError(400, "svix serverUrl must use http or https");
+  const url = assertPublicHttpUrl(value, {
+    fieldName: "serverUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "svix serverUrl must use https");
   }
   let normalizedPath = url.pathname;
   while (normalizedPath.length > 1 && normalizedPath.endsWith("/")) normalizedPath = normalizedPath.slice(0, -1);

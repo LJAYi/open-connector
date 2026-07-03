@@ -10,6 +10,7 @@ import {
   positiveInteger,
   requiredString,
 } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import { providerUserAgent, ProviderRequestError } from "../provider-runtime.ts";
 
 const giteaApiSegment = "api/v1";
@@ -384,15 +385,13 @@ function normalizeGiteaBaseUrl(value: string | undefined): string {
     throw new ProviderRequestError(400, "Base URL is required");
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new ProviderRequestError(400, "Base URL must be a valid absolute URL");
-  }
+  const parsed = assertPublicHttpUrl(trimmed, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
 
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new ProviderRequestError(400, "Base URL must use http or https");
+  if (parsed.protocol !== "https:") {
+    throw new ProviderRequestError(400, "Base URL must use https");
   }
 
   parsed.search = "";

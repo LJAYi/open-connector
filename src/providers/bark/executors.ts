@@ -4,6 +4,7 @@ import type { BarkActionName } from "./actions.ts";
 
 import { createHash } from "node:crypto";
 import { compactObject, optionalInteger, optionalString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   defineProviderExecutors,
   ProviderRequestError,
@@ -249,13 +250,19 @@ function resolveBarkCredential(apiKey: string, baseUrlInput?: string): BarkCrede
 function parseBarkPushUrl(value: string): BarkCredential | undefined {
   let url: URL;
   try {
-    url = new URL(value);
-  } catch {
+    url = assertPublicHttpUrl(value, {
+      fieldName: "Bark push URL",
+      createError: (message) => new ProviderRequestError(400, message),
+    });
+  } catch (error) {
+    if (error instanceof ProviderRequestError) {
+      throw error;
+    }
     return undefined;
   }
 
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new ProviderRequestError(400, "Bark push URL must use http or https");
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "Bark push URL must use https");
   }
 
   const segments = url.pathname.split("/").filter(Boolean);
@@ -276,15 +283,13 @@ function parseBarkPushUrl(value: string): BarkCredential | undefined {
 
 function normalizeBarkBaseUrl(value?: string): string {
   const candidate = value?.trim() || barkDefaultBaseUrl;
-  let url: URL;
-  try {
-    url = new URL(candidate);
-  } catch {
-    throw new ProviderRequestError(400, "Bark baseUrl must be a valid URL");
-  }
+  const url = assertPublicHttpUrl(candidate, {
+    fieldName: "Bark baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
 
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new ProviderRequestError(400, "Bark baseUrl must use http or https");
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "Bark baseUrl must use https");
   }
 
   url.search = "";

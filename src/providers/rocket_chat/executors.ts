@@ -8,6 +8,7 @@ import type { RocketChatActionName } from "./actions.ts";
 
 import { isIP } from "node:net";
 import { compactObject, optionalRecord, optionalString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import { defineProviderExecutors, ProviderRequestError, providerUserAgent } from "../provider-runtime.ts";
 
 const service = "rocket_chat";
@@ -325,14 +326,12 @@ function readCredentialString(input: Record<string, string>, key: string): strin
 }
 
 function normalizeRocketChatBaseUrl(input: string): string {
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch (error) {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL", error);
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new ProviderRequestError(400, "baseUrl must use http or https");
+  const url = assertPublicHttpUrl(input, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "baseUrl must use https");
   }
   if (url.username || url.password) {
     throw new ProviderRequestError(400, "baseUrl must not include credentials");

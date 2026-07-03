@@ -630,6 +630,17 @@ h3 {
   font-size: 15px;
 }
 
+.provider-icon-image {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.provider-icon.large .provider-icon-image {
+  width: 28px;
+  height: 28px;
+}
+
 .row-main,
 .action-row-main,
 .linked-row span {

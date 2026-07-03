@@ -3,6 +3,7 @@ import type { OnePasswordActionName } from "./actions.ts";
 
 import { createHash } from "node:crypto";
 import { optionalInteger, optionalRecord, optionalString, requiredString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   createProviderTimeout,
   defineProviderExecutors,
@@ -265,15 +266,13 @@ function normalizeOnePasswordBaseUrl(value: unknown): string {
     throw new ProviderRequestError(400, "baseUrl is required");
   }
 
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL");
-  }
+  const url = assertPublicHttpUrl(raw, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
 
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new ProviderRequestError(400, "baseUrl must use http or https");
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "baseUrl must use https");
   }
   if (url.pathname !== "/") {
     throw new ProviderRequestError(400, "baseUrl must be the Connect Server root URL without any path");

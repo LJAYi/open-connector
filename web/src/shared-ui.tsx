@@ -2,6 +2,7 @@ import type { ProviderDefinition } from "./model";
 import type { ReactNode } from "react";
 
 import { X } from "lucide-react";
+import { useState } from "react";
 
 export function Metric(props: { label: string; value: number }): ReactNode {
   return (
@@ -41,13 +42,68 @@ export function TagList(props: { values: string[]; empty: string }): ReactNode {
 }
 
 export function ProviderIcon(props: { provider: ProviderDefinition; large?: boolean }): ReactNode {
-  const letters = props.provider.displayName
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  return <span className={props.large ? "provider-icon large" : "provider-icon"}>{letters}</span>;
+  const letters = providerInitials(props.provider.displayName);
+  const iconUrl = providerIconUrl(props.provider);
+  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
+  const className = props.large ? "provider-icon large" : "provider-icon";
+
+  if (!iconUrl || failedIconUrl === iconUrl) {
+    return <span className={className}>{letters}</span>;
+  }
+
+  return (
+    <span className={className}>
+      <img
+        alt=""
+        className="provider-icon-image"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        src={iconUrl}
+        onError={() => setFailedIconUrl(iconUrl)}
+      />
+    </span>
+  );
+}
+
+export function providerInitials(displayName: string): string {
+  return (
+    displayName
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
+}
+
+export function providerIconUrl(provider: ProviderDefinition): string | undefined {
+  const iconUrl = provider.iconUrl?.trim();
+  if (iconUrl) {
+    return iconUrl;
+  }
+
+  if (import.meta.env.VITE_PROVIDER_ICON_FAVICON_FALLBACK === "false") {
+    return undefined;
+  }
+
+  const hostname = providerHomepageHostname(provider.homepageUrl);
+  if (!hostname) {
+    return undefined;
+  }
+
+  return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(hostname)}`;
+}
+
+function providerHomepageHostname(homepageUrl: string | undefined): string | undefined {
+  if (!homepageUrl) {
+    return undefined;
+  }
+
+  try {
+    return new URL(homepageUrl).hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 export function EmptyState(props: { title: string; description: string; icon?: ReactNode }): ReactNode {

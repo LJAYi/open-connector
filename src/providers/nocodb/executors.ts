@@ -10,7 +10,7 @@ import {
   requiredRecord,
   requiredString,
 } from "../../core/cast.ts";
-import { compactJson, queryParams } from "../../core/request.ts";
+import { assertPublicHttpUrl, compactJson, queryParams } from "../../core/request.ts";
 import {
   createProviderTimeout,
   defineProviderExecutors,
@@ -617,14 +617,12 @@ function readRequiredCount(value: unknown): number {
 
 function normalizeNocodbBaseUrl(value: unknown): string {
   const raw = requiredInputString(value, "baseUrl");
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL");
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new ProviderRequestError(400, "baseUrl must use http or https");
+  const url = assertPublicHttpUrl(raw, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "baseUrl must use https");
   }
   if (url.pathname !== "/") {
     throw new ProviderRequestError(400, "baseUrl must be the instance root URL without any path");

@@ -2,6 +2,7 @@ import type { CredentialValidationResult } from "../../core/types.ts";
 import type { GrafanaActionName } from "./actions.ts";
 
 import { compactObject, optionalBoolean, optionalNumber, optionalRecord, optionalString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   createProviderTimeout,
   isAbortLikeError,
@@ -111,15 +112,13 @@ export function normalizeGrafanaBaseUrl(value: unknown): string {
     throw new ProviderRequestError(400, "Grafana baseUrl is required");
   }
 
-  let url: URL;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    throw new ProviderRequestError(400, "Grafana baseUrl must be a valid URL");
-  }
+  const url = assertPublicHttpUrl(value.trim(), {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
 
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new ProviderRequestError(400, "Grafana baseUrl must use http or https");
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "Grafana baseUrl must use https");
   }
 
   url.pathname = url.pathname.replace(/\/+$/, "");

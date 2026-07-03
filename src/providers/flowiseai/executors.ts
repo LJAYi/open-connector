@@ -2,6 +2,7 @@ import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "
 import type { FlowiseaiActionName } from "./actions.ts";
 
 import { compactObject, optionalRecord, optionalString } from "../../core/cast.ts";
+import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   defineProviderExecutors,
   providerUserAgent,
@@ -343,15 +344,13 @@ function normalizeBaseUrl(value: unknown): string {
     throw new ProviderRequestError(400, "baseUrl is required");
   }
 
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL");
-  }
+  const url = assertPublicHttpUrl(raw, {
+    fieldName: "baseUrl",
+    createError: (message) => new ProviderRequestError(400, message),
+  });
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ProviderRequestError(400, "baseUrl must be a valid http(s) URL");
+  if (url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "baseUrl must use https");
   }
   if (url.username || url.password || url.search || url.hash) {
     throw new ProviderRequestError(400, "baseUrl must be a clean API root URL");
