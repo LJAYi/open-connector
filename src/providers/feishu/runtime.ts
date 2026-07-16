@@ -1,7 +1,7 @@
 import type { OAuthProviderContext } from "../provider-runtime.ts";
 
 import { compactObject, optionalObjectArray, optionalRecord, optionalString, requiredString } from "../../core/cast.ts";
-import { ProviderRequestError } from "../provider-runtime.ts";
+import { ProviderRequestError, readProviderJsonBody } from "../provider-runtime.ts";
 
 const feishuOpenBaseUrl = "https://open.feishu.cn/open-apis";
 
@@ -212,19 +212,12 @@ async function feishuApiRequest(input: FeishuApiRequestInput): Promise<Record<st
 
   const response = await input.context.fetcher(url, init);
 
-  const rawText = await response.text();
-  let envelope: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(rawText);
-    const parsedEnvelope = optionalRecord(parsed);
-    if (!parsedEnvelope) {
-      throw new ProviderRequestError(502, "invalid Feishu JSON response");
-    }
-    envelope = parsedEnvelope;
-  } catch (error) {
-    if (error instanceof ProviderRequestError) {
-      throw error;
-    }
+  const payload = await readProviderJsonBody(response, {
+    emptyBody: null,
+    invalidJsonMessage: "invalid Feishu JSON response",
+  });
+  const envelope = optionalRecord(payload);
+  if (!envelope) {
     throw new ProviderRequestError(502, "invalid Feishu JSON response");
   }
 
