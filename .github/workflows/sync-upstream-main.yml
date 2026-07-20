@@ -1,0 +1,94 @@
+name: Sync upstream main
+
+on:
+  schedule:
+    # Check hourly at minute 17 to avoid the busiest part of the hour.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24"
+  UPSTREAM_REPOSITORY: oomol-lab/open-connector
+  UPSTREAM_BRANCH: main
+
+jobs:
+  sync:
+    name: Validate and sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for upstream changes
+        id: upstream
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch --no-tags upstream "${UPSTREAM_BRANCH}"
+
+          if git merge-base --is-ancestor "upstream/${UPSTREAM_BRANCH}" HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The fork already contains the latest upstream main commit."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream changes detected."
+          fi
+
+      - name: Merge upstream main
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff "upstream/${UPSTREAM_BRANCH}" -m "chore: sync upstream main"
+
+      - name: Set up Node.js
+        if: steps.upstream.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.upstream.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Lint
+        if: steps.upstream.outputs.changed == 'true'
+        run: npm run lint
+
+      - name: Check formatting
+        if: steps.upstream.outputs.changed == 'true'
+        run: npm run format
+
+      - name: Typecheck
+        if: steps.upstream.outputs.changed == 'true'
+        run: npm run typecheck
+
+      - name: Run tests
+        if: steps.upstream.outputs.changed == 'true'
+        run: npm test
+
+      - name: Push the verified merge
+        if: steps.upstream.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+
+      - name: Summarize
+        run: |
+          if [ "${{ steps.upstream.outputs.changed }}" = "true" ]; then
+            echo "Upstream main was merged, validated, and pushed to the fork." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The fork was already up to date with upstream main." >> "$GITHUB_STEP_SUMMARY"
+          fi
