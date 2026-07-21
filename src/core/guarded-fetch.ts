@@ -92,6 +92,7 @@ const crossOriginCredentialHeaders = new Set([
   "private-token",
   "x-private-token",
   "x-csrf-token",
+  "x-gotify-key",
   "x-xsrf-token",
   "x-goog-api-key",
   "x-acs-security-token",
