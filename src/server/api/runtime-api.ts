@@ -244,11 +244,29 @@ export function mapConnectionErrorStatus(error: ConnectionError): 400 | 404 | 40
   return 400;
 }
 
+/**
+ * The error codes a provider may put in `ProviderRequestError`'s `code`
+ * argument. Every other code `mapExecutionErrorStatus` knows is raised by the
+ * connection, policy or dispatch layer, and a provider that borrowed one would
+ * answer with a status that has nothing to do with what its upstream said.
+ */
+export const providerErrorCodes: readonly string[] = [
+  "authorization_failed",
+  "insufficient_credit",
+  "invalid_input",
+  "provider_error",
+  "rate_limited",
+];
+
 function mapExecutionErrorStatus(code: string | undefined, details?: unknown): RuntimeStatus {
+  const upstreamStatus = optionalInteger(optionalRecord(details)?.status);
+  if (upstreamStatus === 413) {
+    return 413;
+  }
   if (code === "insufficient_credit") {
     return 402;
   }
-  if (code === "invalid_input" && optionalInteger(optionalRecord(details)?.status) === 404) {
+  if (code === "invalid_input" && upstreamStatus === 404) {
     return 404;
   }
   if (code === "internal_error" || code === "provider_error" || code === "executor_unavailable") {

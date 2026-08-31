@@ -122,9 +122,9 @@ async function discoverTikHubEndpointsWithCache(
   }
   if (input.category !== undefined && !isEligibleTikHubEndpointCategory(input.category)) {
     throw new TikHubRequestError(
-      "policy_denied",
+      "invalid_input",
       `TikHub account category is unavailable through dynamic discovery: ${input.category}`,
-      403,
+      400,
     );
   }
 
@@ -418,7 +418,6 @@ async function fetchTikHubDocument(url: string, maxBytes: number, fetcher: typeo
         "provider_error",
         `TikHub documentation request failed with status ${response.status}`,
         502,
-        undefined,
         { upstreamStatus: response.status, url },
       ] as const;
       throw response.status === 429 || response.status >= 500

@@ -3,7 +3,7 @@ import type { ProductlaneActionName } from "./actions.ts";
 
 import { requiredString } from "../../core/cast.ts";
 import { encodePathSegment } from "../../core/request.ts";
-import { ProviderRequestError, providerUserAgent } from "../provider-runtime.ts";
+import { providerInputError, ProviderRequestError, providerUserAgent } from "../provider-runtime.ts";
 
 export interface ProductlaneCredentialCheck {
   providerAccountId?: string;
@@ -259,8 +259,12 @@ function mapProductlaneError(status: number, payload: unknown, phase: "validate"
   const message = readErrorMessage(payload) ?? `Productlane API request failed with status ${status}`;
   const providerCode = readErrorCode(payload);
 
-  if (status === 401 || status === 410) {
-    return phase === "validate" ? new ProviderRequestError(400, message) : new ProviderRequestError(409, message);
+  if (status === 401) {
+    return phase === "validate" ? new ProviderRequestError(400, message) : new ProviderRequestError(401, message);
+  }
+
+  if (status === 410) {
+    return providerInputError(message);
   }
 
   if (status === 403) {

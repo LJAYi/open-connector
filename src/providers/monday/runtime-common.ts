@@ -5,6 +5,7 @@ import {
   createProviderTimeout,
   isAbortLikeError,
   providerFetch,
+  providerInputError,
   ProviderRequestError,
   providerUserAgent,
 } from "../provider-runtime.ts";
@@ -75,10 +76,6 @@ export interface MondayProviderActionInput {
   apiKey: string;
   actionName: string;
   input: Record<string, unknown>;
-}
-
-export function mondayProviderError(_code: string, message: string, status = 502): ProviderRequestError {
-  return new ProviderRequestError(status, message);
 }
 
 export async function validateMondayCredential(
@@ -170,16 +167,14 @@ export async function mondayGraphqlRequest<TData>(
       throw error;
     }
     if (timeout.didTimeout() || isAbortLikeError(error)) {
-      throw mondayProviderError(
-        "provider_error",
-        `monday request timed out after ${Math.max(1, Math.ceil(mondayDefaultRequestTimeoutMs / 1000))} seconds`,
+      throw new ProviderRequestError(
         504,
+        `monday request timed out after ${Math.max(1, Math.ceil(mondayDefaultRequestTimeoutMs / 1000))} seconds`,
       );
     }
-    throw mondayProviderError(
-      "provider_error",
-      error instanceof Error ? `monday request failed: ${error.message}` : "monday request failed",
+    throw new ProviderRequestError(
       502,
+      error instanceof Error ? `monday request failed: ${error.message}` : "monday request failed",
     );
   } finally {
     timeout.cleanup();
@@ -195,7 +190,7 @@ export async function mondayGraphqlRequest<TData>(
   }
 
   if (payload.data == null) {
-    throw mondayProviderError("provider_error", "monday response did not include data", 502);
+    throw new ProviderRequestError(502, "monday response did not include data");
   }
 
   return payload.data;
@@ -210,7 +205,7 @@ async function readGraphqlJson<TData>(response: Response) {
   try {
     return JSON.parse(text) as MondayGraphqlEnvelope<TData>;
   } catch {
-    throw mondayProviderError("provider_error", "monday returned invalid JSON", 502);
+    throw new ProviderRequestError(502, "monday returned invalid JSON");
   }
 }
 
@@ -229,19 +224,19 @@ function createMondayError(status: number | undefined, payload: unknown, phase: 
     extractRetryInSeconds(payload) !== undefined ||
     retryAfter
   ) {
-    return mondayProviderError("rate_limited", message, 429);
+    return new ProviderRequestError(429, message);
   }
 
   if (phase === "validate" && (status === 401 || status === 403 || code === "Unauthorized")) {
-    return mondayProviderError("invalid_input", message, 400);
+    return providerInputError(message);
   }
 
   if (phase === "execute" && status === 401) {
-    return mondayProviderError("credential_expired", message, 409);
+    return new ProviderRequestError(401, message);
   }
 
   if (phase === "execute" && isMondayPermissionErrorCode(code)) {
-    return mondayProviderError("scope_missing", message, 403);
+    return new ProviderRequestError(403, message);
   }
 
   if (
@@ -259,14 +254,14 @@ function createMondayError(status: number | undefined, payload: unknown, phase: 
     code === "UserUnauthorizedException" ||
     code === "USER_ACCESS_DENIED"
   ) {
-    return mondayProviderError("invalid_input", message, 400);
+    return providerInputError(message);
   }
 
   if ((status !== undefined && status >= 500) || code === "API_TEMPORARILY_BLOCKED") {
-    return mondayProviderError("provider_error", message, status !== undefined && status >= 500 ? status : 502);
+    return new ProviderRequestError(status !== undefined && status >= 500 ? status : 502, message);
   }
 
-  return mondayProviderError("provider_error", message, status !== undefined && status >= 400 ? status : 502);
+  return new ProviderRequestError(status !== undefined && status >= 400 ? status : 502, message);
 }
 
 function extractMondayErrorMessage(payload: unknown) {
@@ -561,7 +556,7 @@ export function normalizeMondayDocNameResult(value: unknown): string {
   const record = asOptionalObject(value);
   const name = toOptionalString(record?.name) ?? toOptionalString(record?.doc_name);
   if (!name) {
-    throw mondayProviderError("provider_error", "monday doc name payload is missing", 502);
+    throw new ProviderRequestError(502, "monday doc name payload is missing");
   }
 
   return name;
@@ -571,7 +566,7 @@ export function normalizeMondayDeleteDocResult(value: unknown): Record<string, u
   const record = asOptionalObject(value);
   const deletedDocId = toOptionalId(record?.id) ?? toOptionalId(record?.doc_id);
   if (!deletedDocId) {
-    throw mondayProviderError("provider_error", "monday delete doc payload is missing id", 502);
+    throw new ProviderRequestError(502, "monday delete doc payload is missing id");
   }
 
   return compactObject({
@@ -710,14 +705,14 @@ function toOptionalId(value: unknown) {
 function toRequiredId(value: unknown, fieldName: string) {
   const id = toOptionalId(value);
   if (!id) {
-    throw mondayProviderError("provider_error", `${fieldName} is missing`, 502);
+    throw new ProviderRequestError(502, `${fieldName} is missing`);
   }
   return id;
 }
 
 function toRequiredBoolean(value: unknown, fieldName: string) {
   if (typeof value !== "boolean") {
-    throw mondayProviderError("provider_error", `${fieldName} is missing`, 502);
+    throw new ProviderRequestError(502, `${fieldName} is missing`);
   }
   return value;
 }

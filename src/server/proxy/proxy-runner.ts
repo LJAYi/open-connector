@@ -6,10 +6,10 @@ import type { IProviderLoader } from "../../providers/provider-loader.ts";
 import type { Logger } from "../logger.ts";
 
 import { ConnectionError } from "../../connection-service.ts";
-import { optionalRecord, requiredRecord, requiredString } from "../../core/cast.ts";
+import { optionalInteger, optionalRecord, requiredRecord, requiredString } from "../../core/cast.ts";
 import { mapConnectionErrorStatus } from "../api/runtime-api.ts";
 
-export type ProxyFailureStatus = 400 | 403 | 404 | 409 | 413 | 429 | 500 | 501;
+export type ProxyFailureStatus = 400 | 402 | 403 | 404 | 409 | 413 | 429 | 500 | 501;
 
 export interface ProxyRunnerOptions {
   catalog: CatalogStore;
@@ -268,9 +268,22 @@ export class ProxyRunner {
     return false;
   }
 
+  /**
+   * Map a provider proxy failure onto the HTTP status the `/v1` proxy route
+   * returns. It must answer what `mapExecutionErrorStatus` answers on the action
+   * route for every code a provider executor can raise: both front doors serve
+   * the same provider error object.
+   */
   private mapProxyErrorStatus(code: string, details: unknown): ProxyFailureStatus {
-    if (optionalRecord(details)?.status === 413) {
+    const upstreamStatus = optionalInteger(optionalRecord(details)?.status);
+    if (upstreamStatus === 413) {
       return 413;
+    }
+    if (code === "insufficient_credit") {
+      return 402;
+    }
+    if (code === "invalid_input" && upstreamStatus === 404) {
+      return 404;
     }
     if (code === "authorization_failed") {
       return 403;

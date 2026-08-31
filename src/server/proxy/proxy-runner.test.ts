@@ -10,10 +10,12 @@ import type {
 } from "../../core/types.ts";
 import type { IProviderLoader } from "../../providers/provider-loader.ts";
 import type { Logger } from "../logger.ts";
+import type { ProxyFailureStatus } from "./proxy-runner.ts";
 
 import { describe, expect, it, vi } from "vitest";
 import { ConnectionError } from "../../connection-service.ts";
 import { ActionPolicyService } from "../../core/action-policy.ts";
+import { providerErrorCodes, serializeRuntimeActionResult } from "../api/runtime-api.ts";
 import { ProxyRunner } from "./proxy-runner.ts";
 
 const provider: ProviderDefinition = {
@@ -35,6 +37,59 @@ const credential: Extract<ResolvedCredential, { authType: "api_key" }> = {
 const connectionId = "11111111-1111-4111-8111-111111111111";
 const otherConnectionId = "22222222-2222-4222-8222-222222222222";
 const openPolicy = new ActionPolicyService().createSnapshot();
+
+interface CrossRouteErrorCase {
+  title: string;
+  error: Extract<ProxyExecutionResult, { ok: false }>["error"];
+}
+
+/**
+ * Both `/v1` front doors serve the same provider error object through their own
+ * mapper, so both must derive the same HTTP status from it. Cover every code a
+ * provider executor can raise, the `connection_not_found` the runtime raises on
+ * its behalf, and the two upstream statuses a provider preserves in
+ * `details.status`. The last case matches two branches at once, so it also pins
+ * the order the two mappers resolve them in: a row that carries only a code or
+ * only a status agrees no matter where either mapper puts its 413 branch.
+ */
+const crossRouteErrorCases: CrossRouteErrorCase[] = [
+  ...providerErrorCodes.map((code) => ({ title: code, error: { code, message: "Provider request failed." } })),
+  { title: "connection_not_found", error: { code: "connection_not_found", message: "Connect the account." } },
+  {
+    title: "an upstream not-found status",
+    error: { code: "invalid_input", message: "Task not found.", details: { status: 404 } },
+  },
+  {
+    title: "an upstream payload-too-large status",
+    error: { code: "invalid_input", message: "response exceeds 4 bytes", details: { status: 413 } },
+  },
+  {
+    title: "an exhausted credit balance whose response was too large",
+    error: { code: "insufficient_credit", message: "response exceeds 4 bytes", details: { status: 413 } },
+  },
+];
+
+interface ProxyFailureStatusCase extends CrossRouteErrorCase {
+  status: ProxyFailureStatus;
+}
+
+/**
+ * The cross-route table proves the two mappers agree about an error object;
+ * these pin what they agree on, so the statuses this layer moved on the proxy
+ * route are caught by value rather than by both routes moving together.
+ */
+const proxyFailureStatusCases: ProxyFailureStatusCase[] = [
+  {
+    title: "an exhausted provider credit balance",
+    error: { code: "insufficient_credit", message: "Account balance is empty." },
+    status: 402,
+  },
+  {
+    title: "an upstream not-found status",
+    error: { code: "invalid_input", message: "Task not found.", details: { status: 404 } },
+    status: 404,
+  },
+];
 
 describe("ProxyRunner", () => {
   it("returns proxy_not_supported before resolving credentials when the provider has no proxy executor", async () => {
@@ -737,6 +792,43 @@ describe("ProxyRunner", () => {
       status: 429,
       errorCode: "rate_limited",
       message: "Rate limit exceeded.",
+    });
+  });
+
+  it.each(proxyFailureStatusCases)("answers $title with HTTP $status", async ({ error, status }) => {
+    const runner = createRunner({
+      providerLoader: new TestProviderLoader(async () => ({ ok: false, error })),
+    });
+
+    await expect(
+      runner.run({
+        service: "example",
+        input: { endpoint: "/items", method: "GET" },
+        policy: openPolicy,
+      }),
+    ).resolves.toMatchObject({ ok: false, status, errorCode: error.code });
+  });
+
+  it.each(crossRouteErrorCases)("answers $title with the status the action route answers", async ({ error }) => {
+    const runner = createRunner({
+      providerLoader: new TestProviderLoader(async () => ({ ok: false, error })),
+    });
+
+    const proxyResult = await runner.run({
+      service: "example",
+      input: { endpoint: "/items", method: "GET" },
+      policy: openPolicy,
+    });
+
+    expect(proxyResult).toMatchObject({
+      ok: false,
+      status: serializeRuntimeActionResult({
+        actionId: "example.echo",
+        executionId: "execution-1",
+        auditPersisted: false,
+        result: { ok: false, error },
+      }).status,
+      errorCode: error.code,
     });
   });
 
