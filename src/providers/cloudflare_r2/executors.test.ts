@@ -1,12 +1,17 @@
 import type { ExecutionContext, ResolvedCredential, TransitFileStore } from "../../core/types.ts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { validateActionInput } from "../../core/validation.ts";
+import { cloudflareR2Actions } from "./actions.ts";
 import { credentialValidators, executors } from "./executors.ts";
 
 interface CapturedRequest {
   url: URL;
+  method: string;
   authorization: string | null;
   jurisdiction: string | null;
+  contentType: string | null;
+  bodyText: string;
 }
 
 const oauthCredential: Extract<ResolvedCredential, { authType: "oauth2" }> = {
@@ -498,8 +503,11 @@ function stubResponses(responses: Response[]): CapturedRequest[] {
     const request = input instanceof Request ? input : new Request(input, init);
     requests.push({
       url: new URL(request.url),
+      method: request.method,
       authorization: request.headers.get("authorization"),
       jurisdiction: request.headers.get("cf-r2-jurisdiction"),
+      contentType: request.headers.get("content-type"),
+      bodyText: await request.text(),
     });
     const response = responses.shift();
     if (!response) {
@@ -540,6 +548,179 @@ function createTransitFileStore(maxBytes: number): {
   };
 }
 
+describe("Cloudflare R2 put_object", () => {
+  it("uploads contentText into the bucket object path", async () => {
+    const requests = stubResponses([
+      Response.json({ success: true, result: { etag: "9a0364b9e99bb480dd25e1f0284c8555" } }),
+    ]);
+
+    const result = await executePut({ bucketName: "documents", objectKey: "notes/hello.txt", contentText: "hello" });
+
+    expect(result).toEqual({
+      ok: true,
+      output: { bucketName: "documents", objectKey: "notes/hello.txt", etag: "9a0364b9e99bb480dd25e1f0284c8555" },
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url.pathname).toBe(
+      "/client/v4/accounts/account-1/r2/buckets/documents/objects/notes/hello.txt",
+    );
+    expect(requests[0]?.method).toBe("PUT");
+    expect(requests[0]?.authorization).toBe("Bearer cloudflare-access-token");
+    expect(requests[0]?.bodyText).toBe("hello");
+  });
+
+  it("uploads base64 content with contentType and jurisdiction headers", async () => {
+    const requests = stubResponses([
+      Response.json({ success: true, result: { etag: "9a0364b9e99bb480dd25e1f0284c8555" } }),
+    ]);
+
+    const result = await executePut({
+      bucketName: "documents",
+      objectKey: "notes/hello.txt",
+      contentBase64: Buffer.from("hello").toString("base64"),
+      contentType: "text/plain",
+      jurisdiction: "eu",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: { bucketName: "documents", etag: "9a0364b9e99bb480dd25e1f0284c8555" },
+    });
+    expect(requests[0]?.method).toBe("PUT");
+    expect(requests[0]?.jurisdiction).toBe("eu");
+    expect(requests[0]?.contentType).toBe("text/plain");
+    expect(requests[0]?.bodyText).toBe("hello");
+  });
+
+  it("falls back to the response ETag header and strips its quotes", async () => {
+    stubResponses([Response.json({ success: true, result: {} }, { headers: { etag: '"abc123"' } })]);
+
+    const result = await executePut({ bucketName: "documents", objectKey: "notes/hello.txt", contentText: "hello" });
+
+    expect(result).toMatchObject({ ok: true, output: { etag: "abc123" } });
+  });
+
+  it("uploads with a custom API token credential", async () => {
+    const requests = stubResponses([
+      Response.json({ success: true, result: { etag: "9a0364b9e99bb480dd25e1f0284c8555" } }),
+    ]);
+
+    const result = await executePut(
+      { bucketName: "documents", objectKey: "notes/hello.txt", contentText: "hello" },
+      customCredential,
+    );
+
+    expect(result).toMatchObject({ ok: true, output: { etag: "9a0364b9e99bb480dd25e1f0284c8555" } });
+    expect(requests[0]?.authorization).toBe("Bearer cf-api-token-secret");
+  });
+
+  it("rejects dot segments before any network request", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await executePut({ bucketName: "documents", objectKey: "a/../secret", contentText: "hi" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input", message: "objectKey must not contain . or .. path segments" },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cloud-metadata sourceUrl before any outbound fetch", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await executePut({
+      bucketName: "documents",
+      objectKey: "notes/hello.txt",
+      sourceUrl: "https://169.254.169.254/latest/meta-data/",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: "sourceUrl must not target private or reserved IP addresses",
+      },
+    });
+    // context.fetcher pins api.cloudflare.com with skipDnsValidation, so a user
+    // sourceUrl has to go through the DNS-validating providerFetch instead.
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a sourceUrl that redirects to a reserved address", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await executePut({
+      bucketName: "documents",
+      objectKey: "notes/hello.txt",
+      sourceUrl: "https://files.example.com/report.pdf",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "provider_error",
+        message: "redirect location must not target private or reserved IP addresses",
+      },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a sourceUrl payload larger than the download limit", async () => {
+    const fetch = vi.fn(async () => new Response("", { headers: { "content-length": "31457280" } }));
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await executePut({
+      bucketName: "documents",
+      objectKey: "notes/hello.txt",
+      sourceUrl: "https://files.example.com/report.pdf",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input", message: "sourceUrl exceeds 20971520 bytes" },
+    });
+  });
+
+  it("maps a failed sourceUrl download to invalid input instead of passing the status through", async () => {
+    const fetch = vi.fn(async () => new Response("missing", { status: 404, statusText: "Not Found" }));
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await executePut({
+      bucketName: "documents",
+      objectKey: "notes/hello.txt",
+      sourceUrl: "https://files.example.com/report.pdf",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input", message: "failed to download sourceUrl: 404 Not Found" },
+    });
+  });
+});
+
+describe("Cloudflare R2 put_object content source schema", () => {
+  const action = cloudflareR2Actions.find(({ name }) => name === "put_object")!;
+
+  it("requires exactly one content source", () => {
+    const base = { bucketName: "documents", objectKey: "notes/hello.txt" };
+
+    expect(validateActionInput(action, base).valid).toBe(false);
+    expect(validateActionInput(action, { ...base, contentText: "hello" }).valid).toBe(true);
+    expect(validateActionInput(action, { ...base, sourceUrl: "https://files.example.com/report.pdf" }).valid).toBe(
+      true,
+    );
+    expect(validateActionInput(action, { ...base, contentBase64: "aGVsbG8=" }).valid).toBe(true);
+    expect(validateActionInput(action, { ...base, contentText: "hello", contentBase64: "aGVsbG8=" }).valid).toBe(false);
+  });
+});
+
 async function executeDownload(input: Record<string, unknown>, transitFiles?: TransitFileStore) {
   const context: ExecutionContext = {
     getCredential: async (service) => {
@@ -561,6 +742,16 @@ async function executePresign(input: Record<string, unknown>, credential: Resolv
     },
   };
   return executors["cloudflare_r2.generate_presigned_url"]!(input, context);
+}
+
+async function executePut(input: Record<string, unknown>, credential: ResolvedCredential = oauthCredential) {
+  const context: ExecutionContext = {
+    getCredential: async (service) => {
+      expect(service).toBe("cloudflare_r2");
+      return credential;
+    },
+  };
+  return executors["cloudflare_r2.put_object"]!(input, context);
 }
 
 function readPresignedOutput(result: { ok: boolean; output?: unknown }): Record<string, unknown> {

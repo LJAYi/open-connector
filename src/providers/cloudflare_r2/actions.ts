@@ -302,6 +302,43 @@ export const cloudflareR2Actions: ActionDefinition[] = [
     }),
   }),
   defineProviderAction(service, {
+    name: "put_object",
+    description: "Upload one R2 object from a public URL, plain text, or base64-encoded content.",
+    requiredScopes: [r2WriteScope],
+    providerPermissions: [r2WritePermission],
+    inputSchema: {
+      ...s.object(
+        "The input payload for this action.",
+        {
+          accountId: accountIdSchema,
+          bucketName: bucketNameSchema,
+          objectKey: s.nonEmptyString("The complete R2 object key. Slashes are preserved as key delimiters."),
+          jurisdiction: jurisdictionSchema,
+          sourceUrl: s.url(
+            "A public URL that the connector can fetch and upload to R2. Provide exactly one of sourceUrl, contentText, or contentBase64.",
+          ),
+          contentText: s.string(
+            "The plain-text content to upload. Provide exactly one of sourceUrl, contentText, or contentBase64.",
+          ),
+          contentBase64: s.string(
+            "Base64-encoded binary content to upload. Provide exactly one of sourceUrl, contentText, or contentBase64.",
+          ),
+          contentType: s.string("The Content-Type header to store on the object."),
+        },
+        {
+          required: ["bucketName", "objectKey"],
+          optional: ["accountId", "jurisdiction", "sourceUrl", "contentText", "contentBase64", "contentType"],
+        },
+      ),
+      oneOf: [{ required: ["sourceUrl"] }, { required: ["contentText"] }, { required: ["contentBase64"] }],
+    } as JsonSchema,
+    outputSchema: s.object("The output payload for this action.", {
+      bucketName: s.string("The bucket that received the object."),
+      objectKey: s.string("The uploaded object key."),
+      etag: s.nullable(s.string("The uploaded object ETag, or null when R2 did not return it.")),
+    }),
+  }),
+  defineProviderAction(service, {
     name: "generate_presigned_url",
     description:
       "Generate a pre-signed R2 URL for a single GET, PUT, or HEAD request. Requires a custom API token credential; OAuth connections cannot mint R2 S3 signatures.",
