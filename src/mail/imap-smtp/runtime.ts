@@ -440,6 +440,14 @@ export async function executeMailAction(
           await prepared.cleanup();
         }
       }
+      default: {
+        // A mail action name without a branch would otherwise fall off the
+        // switch and resolve to undefined, which the runtime reports as an
+        // empty success. The never assignment makes the compiler reject the
+        // next action name that skips this switch.
+        const exhaustiveActionName: never = actionName;
+        throw new ProviderRequestError(500, `Unsupported mail action: ${exhaustiveActionName}`);
+      }
     }
   } catch (error) {
     throw mapProtocolError(error, "execute", context.config);
