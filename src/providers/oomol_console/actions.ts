@@ -450,10 +450,4 @@ export const oomolConsoleActions: readonly ProviderActionDefinition[] = [
       { optional: ["nextCursor"] },
     ),
   }),
-] as const;
-
-export type OomolConsoleActionName = (typeof oomolConsoleActions)[number]["name"];
-
-export const oomolConsoleActionByName: ReadonlyMap<string, ProviderActionDefinition> = new Map(
-  oomolConsoleActions.map((action) => [action.name, action] as const),
-);
+];
