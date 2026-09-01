@@ -87,9 +87,15 @@ export function providerIconSource(
   }
 
   const hostname = providerHomepageHostname(provider.homepageUrl);
-  return hostname
-    ? { kind: "url", value: `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(hostname)}` }
-    : undefined;
+  if (!hostname) {
+    return undefined;
+  }
+
+  const searchParams = new URLSearchParams({
+    larger: "true",
+    "throw-error-on-404": "true",
+  });
+  return { kind: "url", value: `https://a.favicon.im/${hostname}?${searchParams.toString()}` };
 }
 
 function providerHomepageHostname(homepageUrl: string | undefined): string | undefined {
