@@ -226,6 +226,7 @@ export interface ApiKeyActionRequest {
 export interface OAuthProviderContext {
   accessToken: string;
   tokenType?: string;
+  accountId?: string;
   providerSecret?: Record<string, unknown>;
   fetcher: ProviderFetch;
   transitFiles?: TransitFileWriter;
@@ -1097,6 +1098,7 @@ export function defineOAuthProviderExecutors(
       const providerContext: OAuthProviderContext = {
         accessToken: credential.accessToken,
         tokenType: credential.tokenType,
+        accountId: credential.profile.accountId,
         providerSecret: credential.providerSecret,
         fetcher,
         signal: context.signal,

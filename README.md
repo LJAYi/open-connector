@@ -270,6 +270,7 @@ Issues and pull requests are welcome.
 - [Quickstart](docs/quickstart.md)
 - [Developer tools](docs/sdk-cli.md)
 - [Gmail OAuth and SDK tutorial](docs/gmail-oauth-sdk.md)
+- [Instagram OAuth and Actions](docs/instagram-oauth.md)
 - [Runtime API and MCP](docs/runtime-api.md)
 - [Fly.io deployment](docs/fly-io.md)
 - [Cloudflare deployment](docs/cloudflare.md)

@@ -3671,7 +3671,7 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
   const catalog = createCatalogStore(providers, {
     executableActionIds: ["example.echo"],
   });
-  const providerLoader = options.providerLoader ?? new EmptyProviderLoader();
+  const providerLoader: IProviderLoader = options.providerLoader ?? new EmptyProviderLoader();
   const idempotency = options.idempotency ?? new MemoryIdempotencyStore();
   const runtimeTokens = options.runtimeTokens ?? new RuntimeTokenService(new MemoryRuntimeTokenStore());
   const runs = options.runs ?? new MemoryRunLogStore();
@@ -3717,6 +3717,7 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
     oauthFlow: new OAuthFlowService({
       clientConfigs,
       connections,
+      providerLoader,
       states: new MemoryOAuthStateStore(),
       secretCodec: options.secretCodec,
       isCustomClientConfigAllowed,
