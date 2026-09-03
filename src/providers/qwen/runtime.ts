@@ -28,6 +28,19 @@ const imagePath = "services/aigc/multimodal-generation/generation";
 const voiceCustomizationPath = "services/audio/tts/customization";
 
 export const qwenActionHandlers: ProviderActionHandlers<"qwen", ProviderRuntimeHandler<ApiKeyProviderContext>> = {
+  async extract_text(input, context): Promise<unknown> {
+    const payload = await requestJson(context, "POST", imagePath, buildQwenOcrBody(input));
+    return normalizeQwenOcrResponse(requiredResponseRecord(payload, "OCR response"));
+  },
+  async translate_text(input, context): Promise<unknown> {
+    const payload = await requestJson(
+      context,
+      "POST",
+      "services/aigc/text-generation/generation",
+      buildQwenTranslationBody(input),
+    );
+    return normalizeQwenTranslationResponse(requiredResponseRecord(payload, "translation response"));
+  },
   async create_voice_clone(input, context): Promise<unknown> {
     const payload = await requestJson(context, "POST", voiceCustomizationPath, buildCreateVoiceCloneBody(input));
     return normalizeCreatedVoice(requiredResponseRecord(payload, "voice clone response"));
@@ -121,6 +134,91 @@ export const qwenActionHandlers: ProviderActionHandlers<"qwen", ProviderRuntimeH
     return normalizeImageTranslationTask(payload, taskId);
   },
 };
+
+function buildQwenOcrBody(input: Record<string, unknown>): Record<string, unknown> {
+  const task = optionalString(input.task) ?? "text_recognition";
+  const resultSchema = optionalRecord(input.resultSchema);
+  if (resultSchema && task !== "key_information_extraction")
+    throw inputError("resultSchema requires task key_information_extraction");
+  return {
+    model: "qwen3.5-ocr",
+    input: {
+      messages: [
+        {
+          role: "user",
+          content: [
+            compactObject({
+              image: requiredInputString(input.fileUrl, "fileUrl"),
+              enable_rotate: optionalBoolean(input.enableRotate) ?? false,
+              min_pixels: optionalInteger(input.minPixels),
+              max_pixels: optionalInteger(input.maxPixels),
+            }),
+          ],
+        },
+      ],
+    },
+    parameters: {
+      ocr_options: compactObject({
+        task,
+        task_config: resultSchema ? { result_schema: resultSchema } : undefined,
+      }),
+    },
+  };
+}
+
+function normalizeQwenOcrResponse(payload: Record<string, unknown>): Record<string, unknown> {
+  const output = requiredResponseRecord(payload.output, "output");
+  const choices = objectArray(output.choices, "output.choices", providerResponseError);
+  const message = requiredResponseRecord(choices[0]?.message, "output.choices.message");
+  const content = objectArray(message.content, "output.choices.message.content", providerResponseError)[0];
+  const usage = requiredResponseRecord(payload.usage, "usage");
+  return compactObject({
+    content: requiredString(content?.text, "output.choices.message.content.text", providerResponseError),
+    details: optionalRecord(content?.ocr_result),
+    model: optionalString(payload.model) ?? "qwen3.5-ocr",
+    inputTokens: optionalInteger(usage.input_tokens) ?? 0,
+    outputTokens: optionalInteger(usage.output_tokens) ?? 0,
+    imageTokens: optionalInteger(usage.image_tokens) ?? 0,
+  });
+}
+
+function buildQwenTranslationBody(input: Record<string, unknown>): Record<string, unknown> {
+  const terms = optionalInputObjectArray(input.terms, "terms")?.map((item) => ({
+    source: requiredInputString(item.source, "terms.source"),
+    target: requiredInputString(item.target, "terms.target"),
+  }));
+  const translationMemory = optionalInputObjectArray(input.translationMemory, "translationMemory")?.map((item) => ({
+    source: requiredInputString(item.source, "translationMemory.source"),
+    target: requiredInputString(item.target, "translationMemory.target"),
+  }));
+  return {
+    model: optionalString(input.model) ?? "qwen-mt-flash",
+    input: { messages: [{ role: "user", content: requiredInputString(input.text, "text") }] },
+    parameters: {
+      result_format: "message",
+      translation_options: compactObject({
+        source_lang: optionalString(input.sourceLanguage) ?? "auto",
+        target_lang: requiredInputString(input.targetLanguage, "targetLanguage"),
+        terms,
+        tm_list: translationMemory,
+        domains: optionalString(input.domainPrompt),
+      }),
+    },
+  };
+}
+
+function normalizeQwenTranslationResponse(payload: Record<string, unknown>): Record<string, unknown> {
+  const output = requiredResponseRecord(payload.output, "output");
+  const choices = objectArray(output.choices, "output.choices", providerResponseError);
+  const message = requiredResponseRecord(choices[0]?.message, "output.choices.message");
+  const usage = requiredResponseRecord(payload.usage, "usage");
+  return {
+    text: requiredString(message.content, "output.choices.message.content", providerResponseError),
+    model: optionalString(output.model_name) ?? optionalString(payload.model) ?? "qwen-mt-flash",
+    inputTokens: optionalInteger(usage.input_tokens) ?? 0,
+    outputTokens: optionalInteger(usage.output_tokens) ?? 0,
+  };
+}
 
 export function buildCreateVoiceCloneBody(input: Record<string, unknown>): Record<string, unknown> {
   return {

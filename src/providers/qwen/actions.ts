@@ -69,12 +69,99 @@ const customVoiceSchema = s.object(
     optional: ["targetModel", "status", "createdAt", "modifiedAt", "voicePrompt", "previewText"],
   },
 );
+const translationReferenceSchema = s.object(
+  "A source and target text pair used to guide translation.",
+  {
+    source: s.nonEmptyString("The source term or sentence."),
+    target: s.nonEmptyString("The required or preferred translation."),
+  },
+  { required: ["source", "target"] },
+);
 const translationLifecycle = {
   startActionId: "qwen.submit_image_translation",
   statusActionId: "qwen.get_image_translation",
 };
 
 export const qwenActions: ProviderActionDefinition[] = [
+  defineProviderAction(service, {
+    name: "extract_text",
+    description: "Extract text and structured information from an image with Qwen3.5-OCR.",
+    inputSchema: s.actionInput(
+      {
+        fileUrl: s.url("A publicly accessible image URL."),
+        task: s.withDefault(
+          s.stringEnum("The OCR task to perform.", [
+            "text_recognition",
+            "advanced_recognition",
+            "key_information_extraction",
+            "table_parsing",
+            "document_parsing",
+            "formula_recognition",
+            "multi_lan",
+          ]),
+          "text_recognition",
+        ),
+        resultSchema: s.looseObject(
+          "Fields to extract for key_information_extraction, keyed by field name with descriptions or nested field definitions.",
+        ),
+        enableRotate: s.withDefault(s.boolean("Whether to automatically correct image rotation."), false),
+        minPixels: s.positiveInteger("The minimum number of image pixels used for model input."),
+        maxPixels: s.positiveInteger("The maximum number of image pixels used for model input."),
+      },
+      ["fileUrl"],
+      "A Qwen3.5-OCR extraction request.",
+    ),
+    outputSchema: s.actionOutput(
+      {
+        content: s.string("The extracted text or formatted OCR output."),
+        details: s.looseObject("Task-specific structured OCR details when returned by Qwen."),
+        model: s.nonEmptyString("The Qwen OCR model used for extraction."),
+        inputTokens: s.nonNegativeInteger("The number of input tokens billed by Qwen."),
+        outputTokens: s.nonNegativeInteger("The number of output tokens billed by Qwen."),
+        imageTokens: s.nonNegativeInteger("The number of image input tokens billed by Qwen."),
+      },
+      "The normalized Qwen OCR result and usage.",
+      ["content", "model", "inputTokens", "outputTokens", "imageTokens"],
+    ),
+  }),
+  defineProviderAction(service, {
+    name: "translate_text",
+    description: "Translate text with Qwen-MT and optional terminology, translation memory, and domain guidance.",
+    inputSchema: s.actionInput(
+      {
+        model: s.withDefault(
+          s.stringEnum("The Qwen-MT translation model.", ["qwen-mt-flash", "qwen-mt-plus"]),
+          "qwen-mt-flash",
+        ),
+        text: s.string("The text to translate.", { minLength: 1 }),
+        sourceLanguage: s.withDefault(
+          s.nonEmptyString("The source language name or code, or auto for automatic detection."),
+          "auto",
+        ),
+        targetLanguage: s.nonEmptyString("The target language name or code."),
+        terms: s.array("Required translations for terms appearing in the source text.", translationReferenceSchema),
+        translationMemory: s.array(
+          "Previously translated sentence pairs whose style and phrasing should be followed.",
+          translationReferenceSchema,
+        ),
+        domainPrompt: s.string("English guidance describing the translation domain and preferred style.", {
+          minLength: 1,
+        }),
+      },
+      ["text", "targetLanguage"],
+      "A Qwen-MT text translation request.",
+    ),
+    outputSchema: s.actionOutput(
+      {
+        text: s.string("The translated text."),
+        model: s.nonEmptyString("The Qwen-MT model reported by Qwen."),
+        inputTokens: s.nonNegativeInteger("The number of input tokens billed by Qwen."),
+        outputTokens: s.nonNegativeInteger("The number of output tokens billed by Qwen."),
+      },
+      "The translated text and usage.",
+      ["text", "model", "inputTokens", "outputTokens"],
+    ),
+  }),
   defineProviderAction(service, {
     name: "generate_image",
     description: "Generate or edit images with the Qwen Image 3.0 family.",
