@@ -1,10 +1,11 @@
 import type { CatalogStore, ProviderSummaryDefinition } from "./catalog-store.ts";
 import type { JsonSchema, ProviderDefinition } from "./core/types.ts";
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { catalogIndexFileName, createCatalogIndex } from "./catalog-index.ts";
 import { defaultLazySchemaCacheFiles } from "./catalog-lazy-schemas.ts";
 import { createCatalogStore, loadCatalog, resolveExecutableActionIds } from "./catalog-store.ts";
 
@@ -68,7 +69,9 @@ describe("catalog store", () => {
     ];
 
     const catalog = createCatalogStore(providers, { executableActionIds: ["example.ping"] });
-    const [summary] = JSON.parse(catalog.providerSummariesJson) as ProviderSummaryDefinition[];
+    const [summary] = JSON.parse(
+      new TextDecoder().decode(catalog.providerSummariesJson),
+    ) as ProviderSummaryDefinition[];
     const summarizedAction = summary?.actions[0];
 
     expect(summarizedAction).not.toHaveProperty("inputSchema");
@@ -83,6 +86,29 @@ describe("catalog store", () => {
       type: "object",
       properties: { message: { type: "string" } },
     });
+  });
+
+  it("keeps provider summaries as UTF-8 bytes while the ETag still describes the JSON string", () => {
+    const providers: ProviderDefinition[] = [
+      {
+        service: "example",
+        displayName: "示例",
+        categories: ["Developer Tools"],
+        authTypes: ["no_auth"],
+        auth: [{ type: "no_auth" }],
+        actions: [],
+      },
+    ];
+
+    const catalog = createCatalogStore(providers);
+    const json = new TextDecoder().decode(catalog.providerSummariesJson);
+
+    expect(catalog.providerSummariesJson).toBeInstanceOf(Uint8Array);
+    expect(json).toBe(JSON.stringify(catalog.providers));
+    // The non-Latin1 display name takes more UTF-8 bytes than UTF-16 code units, so the length
+    // field below can only match if the ETag still describes the string.
+    expect(catalog.providerSummariesJson.byteLength).toBeGreaterThan(json.length);
+    expect(catalog.providerSummariesEtag).toBe(`W/"${json.length.toString(16)}-a56a243b"`);
   });
 
   it("resolves every action from executable services alongside explicit action ids", () => {
@@ -110,6 +136,23 @@ describe("loadCatalog", () => {
 
     expect(descriptor.get).toBeUndefined();
     expect(descriptor.value).toEqual(schemaFor("ping", 1));
+  });
+
+  it("loads every provider file by default when the catalog spans several read batches", async () => {
+    // More files than two full read batches (see providerReadBatchSize in catalog-store.ts), so the
+    // batched loop has to carry results across batch boundaries and through a partial last batch.
+    const providers = Array.from({ length: 9 }, (_, index) =>
+      providerFixture(`service${String(index).padStart(2, "0")}`, ["ping", "pong"]),
+    );
+    const catalogDir = await writeCatalogDir(providers);
+
+    const catalog = await loadCatalog(catalogDir);
+
+    expect(catalog.providers.map((provider) => provider.service)).toEqual(
+      providers.map((provider) => provider.service),
+    );
+    expect(catalog.actions).toHaveLength(18);
+    expect(catalog.actionsById.get("service08.pong")?.inputSchema).toEqual(schemaFor("pong", 1));
   });
 
   it("reads lazy schemas from disk on access, so a change to an uncached file is picked up", async () => {
@@ -224,34 +267,41 @@ describe("loadCatalog", () => {
   });
 
   it("serializes a lazily loaded catalog exactly like an eagerly loaded one", async () => {
-    const catalogDir = await writeCatalogDir([
-      providerFixture("example", ["ping", "pong"]),
-      providerFixture("remote", ["ping"]),
-    ]);
+    const providers = [providerFixture("example", ["ping", "pong"]), providerFixture("remote", ["ping"])];
+    const catalogDir = await writeCatalogDir(providers);
+    const lazySchemaIndexFile = await writeCatalogIndex(catalogDir, providers);
 
     const eager = await loadCatalog(catalogDir, { executableServices: ["example"] });
     const lazy = await loadCatalog(catalogDir, { executableServices: ["example"], lazySchemas: true });
+    const indexed = await loadCatalog(catalogDir, {
+      executableServices: ["example"],
+      lazySchemas: true,
+      lazySchemaIndexFile,
+    });
 
-    expect(lazy.providerSummariesJson).toBe(eager.providerSummariesJson);
-    expect(lazy.providerSummariesEtag).toBe(eager.providerSummariesEtag);
-    expect(JSON.stringify(lazy.actions)).toBe(JSON.stringify(eager.actions));
-    expect([...lazy.actionsById.keys()]).toEqual([...eager.actionsById.keys()]);
-    expect(JSON.stringify([...lazy.actionsById.values()])).toBe(JSON.stringify([...eager.actionsById.values()]));
-    expect(actionKeys(lazy)).toEqual(actionKeys(eager));
-    expect(actionKeys(lazy)[0]).toEqual([
-      "id",
-      "service",
-      "name",
-      "description",
-      "requiredScopes",
-      "providerPermissions",
-      "inputSchema",
-      "outputSchema",
-      "followUpActions",
-      "asyncLifecycle",
-      "execution",
-    ]);
-    for (const summaries of [eager.providerSummariesJson, lazy.providerSummariesJson]) {
+    for (const store of [lazy, indexed]) {
+      expect(store.providerSummariesJson).toEqual(eager.providerSummariesJson);
+      expect(store.providerSummariesEtag).toBe(eager.providerSummariesEtag);
+      expect(JSON.stringify(store.actions)).toBe(JSON.stringify(eager.actions));
+      expect([...store.actionsById.keys()]).toEqual([...eager.actionsById.keys()]);
+      expect(JSON.stringify([...store.actionsById.values()])).toBe(JSON.stringify([...eager.actionsById.values()]));
+      expect(actionKeys(store)).toEqual(actionKeys(eager));
+      expect(actionKeys(store)[0]).toEqual([
+        "id",
+        "service",
+        "name",
+        "description",
+        "requiredScopes",
+        "providerPermissions",
+        "inputSchema",
+        "outputSchema",
+        "followUpActions",
+        "asyncLifecycle",
+        "execution",
+      ]);
+    }
+    for (const store of [eager, lazy, indexed]) {
+      const summaries = new TextDecoder().decode(store.providerSummariesJson);
       expect(summaries).not.toContain("inputSchema");
       expect(summaries).not.toContain("outputSchema");
     }
@@ -263,11 +313,48 @@ describe("loadCatalog", () => {
     const catalog = await loadCatalog(catalogDir, { lazySchemas: true });
     await rm(catalogDir, { recursive: true, force: true });
 
-    const [summary] = JSON.parse(catalog.providerSummariesJson) as ProviderSummaryDefinition[];
+    const [summary] = JSON.parse(
+      new TextDecoder().decode(catalog.providerSummariesJson),
+    ) as ProviderSummaryDefinition[];
     expect(summary?.actions[0]?.id).toBe("example.ping");
     // Nothing was cached during store construction, so the first schema access has to hit the
     // deleted file.
     expect(() => catalog.actionsById.get("example.ping")!.inputSchema).toThrow();
+  });
+
+  it("reads only the index at startup when one is given", async () => {
+    const providers = [providerFixture("example", ["ping"]), providerFixture("remote", ["ping"])];
+    const catalogDir = await writeCatalogDir(providers);
+    const lazySchemaIndexFile = await writeCatalogIndex(catalogDir, providers);
+    const eager = await loadCatalog(catalogDir);
+    // Spaces of the same byte length keep the index's size check passing while any read of a provider
+    // file, at startup or on schema access, fails to parse.
+    await blankProviderFiles(catalogDir);
+
+    await expect(loadCatalog(catalogDir, { lazySchemas: true })).rejects.toThrow(SyntaxError);
+    const catalog = await loadCatalog(catalogDir, { lazySchemas: true, lazySchemaIndexFile });
+
+    expect(catalog.providerSummariesJson).toEqual(eager.providerSummariesJson);
+    const action = catalog.actionsById.get("example.ping")!;
+    expect(Object.getOwnPropertyDescriptor(action, "inputSchema")?.get).toBeTypeOf("function");
+    expect(() => action.inputSchema).toThrow(SyntaxError);
+  });
+
+  it("refuses an index that no longer describes the catalog files", async () => {
+    const providers = [providerFixture("example", ["ping"]), providerFixture("remote", ["ping"])];
+    const catalogDir = await writeCatalogDir(providers);
+    const lazySchemaIndexFile = await writeCatalogIndex(catalogDir, providers);
+    await writeProviderFile(catalogDir, {
+      ...providerFixture("remote", ["ping"]),
+      description: "A longer description than the index was written for.",
+    });
+
+    await expect(loadCatalog(catalogDir, { lazySchemas: true, lazySchemaIndexFile })).rejects.toThrow(
+      /remote\.json \(\d+ bytes, now \d+\); run npm run generate:catalog/,
+    );
+    // Both file-scanning modes keep working: only the index-backed startup refuses a mismatched catalog.
+    await expect(loadCatalog(catalogDir, { lazySchemas: true })).resolves.toBeDefined();
+    await expect(loadCatalog(catalogDir)).resolves.toBeDefined();
   });
 });
 
@@ -275,9 +362,12 @@ function actionKeys(catalog: CatalogStore): string[][] {
   return catalog.actions.map((action) => Object.keys(action));
 }
 
+/** Write the providers to `<tmp>/apps/`, the layout the index sits next to, and return that apps directory. */
 async function writeCatalogDir(providers: ProviderDefinition[]): Promise<string> {
-  const catalogDir = await mkdtemp(join(tmpdir(), "catalog-store-"));
-  temporaryDirectories.push(catalogDir);
+  const root = await mkdtemp(join(tmpdir(), "catalog-store-"));
+  temporaryDirectories.push(root);
+  const catalogDir = join(root, "apps");
+  await mkdir(catalogDir);
   for (const provider of providers) {
     await writeProviderFile(catalogDir, provider);
   }
@@ -285,8 +375,30 @@ async function writeCatalogDir(providers: ProviderDefinition[]): Promise<string>
   return catalogDir;
 }
 
+/** Write the index for the provider files already in `catalogDir` beside it, as the generator lays it out. */
+async function writeCatalogIndex(catalogDir: string, providers: ProviderDefinition[]): Promise<string> {
+  const sources = await Promise.all(
+    providers.map(async (provider) => {
+      const file = `${provider.service}.json`;
+      return { file, bytes: (await stat(join(catalogDir, file))).size, provider };
+    }),
+  );
+  const indexFile = join(dirname(catalogDir), catalogIndexFileName);
+  await writeFile(indexFile, JSON.stringify(createCatalogIndex(sources)));
+
+  return indexFile;
+}
+
 function writeProviderFile(catalogDir: string, provider: ProviderDefinition): Promise<void> {
   return writeFile(join(catalogDir, `${provider.service}.json`), JSON.stringify(provider));
+}
+
+/** Overwrite every provider file in `catalogDir` with spaces of the same byte length, so only its size survives. */
+async function blankProviderFiles(catalogDir: string): Promise<void> {
+  for (const name of await readdir(catalogDir)) {
+    const filePath = join(catalogDir, name);
+    await writeFile(filePath, " ".repeat((await stat(filePath)).size));
+  }
 }
 
 /**

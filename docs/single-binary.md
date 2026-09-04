@@ -6,6 +6,11 @@ provider catalog, the database migrations, and the built web console, so it runs
 without a Node.js installation, a checkout, or `node_modules`. Nothing is extracted to disk at
 runtime.
 
+Provider code is split into chunks inside the executable, and each provider's chunk is loaded the
+first time that provider is used, so the process only parses the server itself at startup. This is
+what keeps the binary's resident memory well under what a single bundle needs, and it is invisible
+to clients: the same routes, responses, and ETags.
+
 ## Build
 
 Building requires Node.js for the npm scripts and the Bun version pinned in `.bun-version`; the
@@ -30,7 +35,7 @@ dist/open-connector-windows-x64.exe
 dist/open-connector-windows-arm64.exe
 ```
 
-Each file is roughly 145 to 170 MiB. To build a subset, pass one or more target names after `--`:
+Each file is roughly 150 to 175 MiB. To build a subset, pass one or more target names after `--`:
 
 ```bash
 npm run build:binary -- linux-x64 darwin-arm64
@@ -107,3 +112,11 @@ prints a notice that SQLite migrations are applied automatically and exits.
 - On Windows, stopping the process from a process manager or `taskkill` terminates it immediately;
   the graceful shutdown hook that closes the HTTP server and the database on Linux and macOS does
   not run. This matches `node src/server/index.ts` on Windows.
+- The binary exits with code 1 when it cannot listen (for example when `PORT` is already in use)
+  and when an uncaught exception is thrown while serving, as `node src/server/index.ts` always
+  has. Earlier binaries printed the error and kept running; after a listen failure they hung
+  without a server.
+- On Linux, Bun releases the pages of the embedded bundle and catalog once startup has finished,
+  so resident memory after startup is lower than the startup peak. Pages touched later, such as a
+  provider's first use or an on-demand schema read, fault back in, bounded by the size of the
+  embedded section. `BUN_FEATURE_FLAG_DISABLE_STANDALONE_MADVISE=1` disables the release.
