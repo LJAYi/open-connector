@@ -175,7 +175,8 @@ Compression Rule matching `text/markdown` if your deployment serves agent guides
 ## Configuration
 
 Cloudflare uses the same environment variable names for origin, auth tokens, action policy, transit
-file limits, and credential encryption. `PORT`, `HOST`, and `OOMOL_CONNECT_DATA_DIR` are local
+file limits, and credential encryption. `PORT`, `HOST`, `OOMOL_CONNECT_DATA_DIR`,
+`OOMOL_CONNECT_CATALOG_LAZY_SCHEMAS`, and `OOMOL_CONNECT_CATALOG_SCHEMA_CACHE_FILES` are local
 Node-only settings on Workers.
 
 See [configuration.md](configuration.md) for all runtime environment variables.
